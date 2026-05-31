@@ -82,7 +82,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //            return proxy.createVoucherOrder(voucherId);
 //        }
     }
-
+    //一人一单及超卖的解决
     @Transactional
     public Result createVoucherOrder(Long voucherId) {
         //5.一人一单
