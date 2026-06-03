@@ -1,4 +1,4 @@
-package com.hmdp.controller;
+package com.hmdp.config;
 
 import com.hmdp.utils.LoginInterceptor;
 import com.hmdp.utils.RefreshTokenInterceptor;
