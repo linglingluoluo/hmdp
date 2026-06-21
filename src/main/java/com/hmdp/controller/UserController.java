@@ -101,4 +101,13 @@ public class UserController {
         return Result.ok(userDTO);
     }
 
+    @PostMapping("/sign")
+    public Result sign(){
+        return userService.sign();
+    }
+    //统计本月当前用户截止当前日期的连续签到天数
+    @GetMapping("/sign/count")
+    public Result signConsecutiveCount(){
+        return userService.signConsecutiveCount();
+    }
 }

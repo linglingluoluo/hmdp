@@ -2,6 +2,7 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -14,14 +15,20 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
+import com.hmdp.utils.UserHolder;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -90,7 +97,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         //Map<String, Object> userMap = BeanUtil.beanToMap(userDTO)会报错
         //ClassCastException,在将userMap往redis写时出现问题, long -> string错误,应该改为下面的
-        Map<String, Object> userMap = BeanUtil.beanToMap(userDTO, new HashMap<>(),
+        Map<String, Object> userMap = BeanUtil.beanToMap(userDTO, new HashMap<>(),  
                 CopyOptions.create()
                         .setIgnoreNullValue(true)//忽略null值
                         .setFieldValueEditor((fieldName, fieldValue) -> fieldValue.toString()));//允许修改字段value
@@ -100,6 +107,52 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(tokenKey, Duration.ofSeconds(RedisConstants.LOGIN_USER_TTL));
         //6.返回token
         return Result.ok(token);
+    }
+
+    @Override
+    public Result sign() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        //当前日期
+        String suffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        //key : sign:userId:20221
+        String key = RedisConstants.USER_SIGN_KEY + userId + suffix;
+        //1.查询当前是第几天
+        int dayOfMonth = now.getDayOfMonth();
+        //2.写入redis
+        stringRedisTemplate.opsForValue().setBit(key,  dayOfMonth - 1, true);
+        return Result.ok();
+    }
+
+    @Override
+    public Result signConsecutiveCount() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        //当前日期
+        String suffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        //key : sign:userId:20221
+        String key = RedisConstants.USER_SIGN_KEY + userId + suffix;
+        //1.查询当前是第几天
+        int dayOfMonth = now.getDayOfMonth();
+        //2.获取本月截止今天为止的所有签到记录, 返回的是一个十进制的数字
+        List<Long> res = stringRedisTemplate.opsForValue().bitField(key,
+                BitFieldSubCommands.create()
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0)
+        );
+        //3.非空判断
+        if(CollectionUtil.isEmpty(res)){
+            return Result.ok(0);
+        }
+        Long num = res.get(0);
+        if(num == null || num == 0){
+            return Result.ok(0);
+        }
+        int cnt = 0;
+        while((num & 1) > 0){
+            cnt++;
+            num >>>= 1;
+        }
+        return Result.ok(cnt);
     }
 
     private User createUserWithPhone(String phone) {
