@@ -8,12 +8,14 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.MQConstants;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -52,6 +54,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private RedissonClient redissonClient;
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
 
@@ -66,11 +70,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     //主线程的代理对象
     private IVoucherOrderService proxy;
 
-    @PostConstruct //使当前类初始化后执行
+//    @PostConstruct //使当前类初始化后执行
     private void init() {
         SECKILL_ORDER_EXECUTOR.submit(new VoucherOrderHandler());
     }
     private final String queueName = "stream.orders";
+
     private class VoucherOrderHandler implements Runnable {
         @Override
         public void run() {
@@ -199,13 +204,46 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             log.error("库存不足");
             return;
         }
-        //5.6实际可以省略, 因为前面redis中lua脚本已经判断能否创建订单了
+        //5.6不能省略, 因为要做幂等性判断
         //7.创建订单
         save(voucherOrder);
     }
 
-    //优惠券秒杀
+
+    //优惠券秒杀- rabbitmq做消息队列
     @Override
+    public Result seckillVoucher(Long voucherId) {
+        //获取用户id
+        Long userId = UserHolder.getUser().getId();
+        //订单id
+        long orderId = redisIdWorker.nextId("order");
+        //1.执行lua脚本, 尝试判读用户有无购买资格,库存是否充足, 发送订单信息到消息队列
+        Long result = stringRedisTemplate.execute(
+                SECKILL_SCRIPT,
+                Collections.EMPTY_LIST,
+                voucherId.toString(), userId.toString(), String.valueOf(orderId)
+        );
+        //2.判断结果是否为0
+        int res = result.intValue();
+        if (res != 0) {
+            //2.1 不为0，代表没有购买资格
+            return Result.fail(res == 1 ? "库存不足" : "不能重复下单");
+        }
+        //3. 有购买资格，需要将订单存入消息队列，包括用户id，订单id，优惠券id
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setId(orderId);
+        voucherOrder.setUserId(userId);
+        voucherOrder.setVoucherId(voucherId);
+        //在认定有抢购资格后，直接向seckill.direct交换机发送消息，内容包含voucherId、userId、orderId
+        // 4. 存入消息队列等待异步消费
+        // 发送端 - 使用相同的交换机和路由键
+        rabbitTemplate.convertAndSend(MQConstants.VOUCHER_EXCHANGE_NAME, MQConstants.VOUCHER_ROUTING_KEY, voucherOrder);
+        // 等待执行创建优惠券订单，最后返回订单Id
+        return Result.ok(orderId);
+    }
+
+    //优惠券秒杀 - stream流做消息队列
+    /*@Override
     public Result seckillVoucher(Long voucherId) {
         //获取用户id
         Long userId = UserHolder.getUser().getId();
@@ -229,11 +267,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         proxy = (IVoucherOrderService) AopContext.currentProxy();
         //4.返回订单id
         return Result.ok(orderId);
-    }
+    }*/
 
-
-
-    /*//优惠券秒杀
+    //优惠券秒杀 - 阻塞队列异步下单
+    /*
     @Override
     public Result seckillVoucher(Long voucherId) {
         //获取用户id
@@ -266,8 +303,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         return Result.ok(orderId);
     }*/
 
-
-    /*//优惠券秒杀
+    //优惠券秒杀 - 加分布式锁实现
+    /*
     @Override
     public Result seckillVoucher(Long voucherId) {
         //1.查询优惠券
@@ -314,8 +351,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //            return proxy.createVoucherOrder(voucherId);
 //        }
     }*/
-    /*
+
     //一人一单及超卖的解决
+    /*
+
     @Transactional
     public Result createVoucherOrder(Long voucherId) {
         //5.一人一单

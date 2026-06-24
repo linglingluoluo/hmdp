@@ -21,6 +21,24 @@ spring:
           time-between-eviction-runs: 10s
   jackson:
     default-property-inclusion: non_null # JSON处理时忽略非空字段
+  rabbitmq:
+    host: localhost # rabbitmq端口
+    port: 5672 # 端口
+    virtual-host: /hmdianping # 虚拟主机
+    username: hmdp # 用户名
+    password: 123456 # 密码
+    listener:
+      simple:
+        prefetch: 5 # # 每次单个线程只能获取5条消息，处理完成才能获取下一个消息
+        acknowledge-mode: auto # 自动ack  当业务正常执行时则自动返回ack.  当业务出现异常时，根据异常判断返回不同结果
+        retry:
+          enabled: true # 开启消费者失败重试
+          initial-interval: 1000ms # 初始的失败等待时长为1秒
+          multiplier: 1 # 失败的等待时长倍数，下次等待时长 = multiplier * (上一次等待时间)last-interval（类似csma-cd）
+          max-attempts: 3 # 最大重试次数
+          stateless: false # true无状态；false有状态。如果业务中包含事务，这里改为false
+    connection-timeout: 200ms #设置连接超时时间
+
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:
