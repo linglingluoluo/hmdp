@@ -38,6 +38,10 @@ spring:
           max-attempts: 3 # 最大重试次数
           stateless: false # true无状态；false有状态。如果业务中包含事务，这里改为false
     connection-timeout: 200ms #设置连接超时时间
+#    publisher-returns: true #开启路由失败回调publisher-return
+#    template:
+#      mandatory: true  #Spring Boot 3.x（Spring AMQP 3.x）中，只要设置 mandatory=true，消息无法路由时才会触发 ReturnsCallback
+#    publisher-confirm-type: correlated #开启生产者确认机制publisher-confirm, 以异步方式回调
 
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包

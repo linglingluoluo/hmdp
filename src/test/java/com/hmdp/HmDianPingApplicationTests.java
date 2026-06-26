@@ -19,6 +19,9 @@ import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.util.EntityUtils;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageBuilder;
+import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,6 +32,7 @@ import org.apache.http.impl.client.HttpClients;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -113,9 +117,32 @@ class HmDianPingApplicationTests {
     private RabbitTemplate rabbitTemplate;
 
     @Test
-
     public void testSendMessage() {
         rabbitTemplate.convertAndSend(MQConstants.VOUCHER_EXCHANGE_NAME, "direct.seckill", "测试发送消息");
+    }
+
+    @Test
+    //测试发送消息路由失败,发送回调消息
+    public void testSendMessageToWrongRoutingKey() {
+        rabbitTemplate.convertAndSend(MQConstants.VOUCHER_EXCHANGE_NAME,
+                "direct.seckill1", "测试发送消息路由失败进行回调");
+    }
+
+    @Test
+    //测试pageout
+    public void testPageOut() {
+        Message message = MessageBuilder
+                .withBody("hello".getBytes(StandardCharsets.UTF_8))
+                .setDeliveryMode(MessageDeliveryMode.NON_PERSISTENT).build();
+        for (int i = 0; i < 1000000; i++) {
+            rabbitTemplate.convertAndSend(MQConstants.VOUCHER_QUEUE_NAME, message);
+        }
+    }
+    //测试发送消息
+    @Test
+    public void testConsumerRetry(){
+        //The default exchange is implicitly bound to every queue, with a routing key equal to the queue name.
+        rabbitTemplate.convertAndSend("direct.demo.queue", "Hello!");
     }
 
 
@@ -124,10 +151,10 @@ class HmDianPingApplicationTests {
 
     /**
      * 批量导出手机号和token到tokens.txt中, 要提前注释掉UserServiceImpl的login的验证码那行代码
-     *         if (redisCode == null || !redisCode.equals(code)) {
-     *             //不一致, 报错
-     *             return Result.fail("验证码错误");
-     *         }
+     * if (redisCode == null || !redisCode.equals(code)) {
+     * //不一致, 报错
+     * return Result.fail("验证码错误");
+     * }
      */
     @Test
     public void function() {

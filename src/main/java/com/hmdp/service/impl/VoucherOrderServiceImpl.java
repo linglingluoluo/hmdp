@@ -2,6 +2,7 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollectionUtil;
+import cn.hutool.core.lang.UUID;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
@@ -15,6 +16,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -236,8 +238,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setVoucherId(voucherId);
         //在认定有抢购资格后，直接向seckill.direct交换机发送消息，内容包含voucherId、userId、orderId
         // 4. 存入消息队列等待异步消费
-        // 发送端 - 使用相同的交换机和路由键
-        rabbitTemplate.convertAndSend(MQConstants.VOUCHER_EXCHANGE_NAME, MQConstants.VOUCHER_ROUTING_KEY, voucherOrder);
+        //4.1创建CorrelationData
+        CorrelationData cd = new CorrelationData(UUID.randomUUID().toString());
+        rabbitTemplate.convertAndSend(MQConstants.VOUCHER_EXCHANGE_NAME, MQConstants.VOUCHER_ROUTING_KEY, voucherOrder, cd);
         // 等待执行创建优惠券订单，最后返回订单Id
         return Result.ok(orderId);
     }
